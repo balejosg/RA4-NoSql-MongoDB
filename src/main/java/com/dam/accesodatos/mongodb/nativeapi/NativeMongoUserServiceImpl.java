@@ -32,11 +32,55 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * SERVICIO CON API NATIVA DE MONGODB
+ * ===================================
+ * Este servicio usa el driver nativo de MongoDB (MongoClient, MongoCollection, Document).
+ * Es equivalente a usar JDBC puro en el mundo SQL (sin frameworks ORM).
+ *
+ * COMPARACIÓN CON JDBC:
+ * =====================
+ * API Nativa MongoDB                      | JDBC Puro
+ * --------------------------------------- | ---------------------------------------
+ * MongoClient mongoClient                 | Connection conn = DriverManager.getConnection()
+ * MongoDatabase database                  | conn.setSchema("database_name")
+ * MongoCollection<Document> collection    | PreparedStatement stmt
+ * Document doc = new Document()           | No directo, usas setString(), setInt()
+ * collection.insertOne(doc)               | stmt.executeUpdate("INSERT INTO...")
+ * collection.find(Filters.eq(...))        | stmt.executeQuery("SELECT * WHERE...")
+ * Document.get("campo")                   | rs.getString("campo")
+ *
+ * VENTAJAS API NATIVA MONGODB:
+ * - Documentos JSON/BSON son más naturales que construir SQL strings
+ * - No necesitas mapear manualmente ResultSet a objetos (solo Document a User)
+ * - Índices, agregaciones y búsquedas son más expresivos
+ *
+ * DESVENTAJAS (vs Spring Data):
+ * - Mucho código boilerplate (mapear Document ↔ User manualmente)
+ * - Propenso a errores (typos en nombres de campos)
+ * - No hay validación en compile-time
+ *
+ * CUÁNDO USAR API NATIVA:
+ * - Necesitas control total sobre las operaciones
+ * - Performance crítico (evitar abstracción de Spring Data)
+ * - Operaciones bulk complejas
+ * - Aprender cómo funciona MongoDB internamente
+ */
 @Service
 public class NativeMongoUserServiceImpl implements NativeMongoUserService {
 
     private static final Logger log = LoggerFactory.getLogger(NativeMongoUserServiceImpl.class);
 
+    /**
+     * MONGOCLIENT: Cliente del driver nativo
+     * ======================================
+     * Equivalente JDBC:
+     * private final Connection connection;
+     * 
+     * IMPORTANTE:
+     * - MongoClient es thread-safe (se puede compartir)
+     * - Connection en JDBC NO es thread-safe (necesitas pool como HikariCP)
+     */
     private final MongoClient mongoClient;
     private final String databaseName;
 
@@ -48,8 +92,23 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
         log.info("NativeMongoUserService inicializado con base de datos: {}", databaseName);
     }
 
+    /**
+     * OBTENER COLECCIÓN (EQUIVALENTE A OBTENER TABLE EN JDBC)
+     * ========================================================
+     * MongoDB:                                 | JDBC:
+     * ---------------------------------------- | ----------------------------------------
+     * MongoCollection<Document> collection =   | PreparedStatement stmt = conn
+     *   mongoClient.getDatabase("db")          |   .prepareStatement("SELECT * FROM users")
+     *   .getCollection("users")                |
+     *
+     * DIFERENCIAS CLAVE:
+     * - En MongoDB la "colección" es como una tabla, pero sin esquema fijo
+     * - No necesitas CREATE TABLE, la colección se crea automáticamente al insertar el primer documento
+     * - MongoCollection<Document> es typed (Document), en JDBC usas tipos primitivos
+     */
     private MongoCollection<Document> getCollection() {
         return mongoClient.getDatabase(databaseName).getCollection("users");
+        // Equivalente JDBC no directo - prepararías statement cada vez
     }
 
     @Override
@@ -76,44 +135,131 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
         }
     }
 
+    /**
+     * EJEMPLO 1: CREAR USUARIO (INSERT)
+     * ==================================
+     * Demuestra cómo insertar un documento en MongoDB.
+     *
+     * COMPARACIÓN CON JDBC:
+     * =====================
+     * MongoDB (API Nativa):
+     * ---------------------
+     * Document doc = new Document()
+     *   .append("name", "Juan")
+     *   .append("email", "juan@email.com")
+     *   .append("department", "IT");
+     * collection.insertOne(doc);
+     * ObjectId id = result.getInsertedId();
+     *
+     * JDBC Puro:
+     * ----------
+     * String sql = "INSERT INTO users(name, email, department, role, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+     * PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+     * stmt.setString(1, dto.getName());
+     * stmt.setString(2, dto.getEmail());
+     * stmt.setString(3, dto.getDepartment());
+     * stmt.setString(4, dto.getRole());
+     * stmt.setBoolean(5, true);
+     * stmt.setTimestamp(6, Timestamp.valueOf(LocalDateTime.now()));
+     * stmt.setTimestamp(7, Timestamp.valueOf(LocalDateTime.now()));
+     * stmt.executeUpdate();
+     * ResultSet rs = stmt.getGeneratedKeys();
+     * if (rs.next()) { long id = rs.getLong(1); }
+     *
+     * VENTAJAS MONGODB:
+     * - Documento JSON es más legible que SQL con ?
+     * - MongoDB genera ObjectId automáticamente (más robusto que AUTO_INCREMENT)
+     * - No necesitas especificar tipos de columna
+     * - Puedes insertar campos opcionales dinámicamente
+     *
+     * VENTAJAS JDBC/SQL:
+     * - Validación de esquema en compile-time (catch errores antes)
+     * - Constraints de base de datos (NOT NULL, CHECK, etc.)
+     */
     @Override
     public User createUser(UserCreateDto dto) {
         log.debug("Creando usuario con email: {}", dto.getEmail());
         try {
+            // 1. Obtener colección (equivalente a preparar el INSERT statement)
             MongoCollection<Document> collection = getCollection();
 
+            // 2. Construir documento BSON (equivalente a setear parámetros en PreparedStatement)
             Document doc = new Document()
-                    .append("name", dto.getName())
-                    .append("email", dto.getEmail())
+                    .append("name", dto.getName())           // En JDBC: stmt.setString(1, dto.getName())
+                    .append("email", dto.getEmail())         // En JDBC: stmt.setString(2, dto.getEmail())
                     .append("department", dto.getDepartment())
                     .append("role", dto.getRole())
                     .append("active", true)
-                    .append("createdAt", new Date())
-                    .append("updatedAt", new Date());
+                    .append("createdAt", new Date())         // MongoDB usa java.util.Date
+                    .append("updatedAt", new Date());        // En JDBC: stmt.setTimestamp(6, ...)
 
+            // 3. Insertar documento (equivalente a executeUpdate())
             InsertOneResult result = collection.insertOne(doc);
+            
+            // 4. Obtener ID generado (MongoDB genera ObjectId automáticamente)
             ObjectId id = result.getInsertedId().asObjectId().getValue();
+            // En JDBC: ResultSet keys = stmt.getGeneratedKeys(); keys.getLong(1);
 
+            // 5. Mapear Document a User (en JDBC mapearías ResultSet a User)
             User user = mapDocumentToUser(doc, id.toString());
             log.info("Usuario creado exitosamente con ID: {}", id);
             return user;
         } catch (Exception e) {
+            // Manejo de error de clave duplicada (índice único en email)
             if (e.getMessage().contains("duplicate key") || e.getMessage().contains("E11000")) {
                 log.warn("Intento de crear usuario con email duplicado: {}", dto.getEmail());
                 throw new DuplicateEmailException(dto.getEmail());
+                // En JDBC sería: SQLIntegrityConstraintViolationException
             }
             log.error("Error al crear usuario: {}", e.getMessage(), e);
             throw new RuntimeException("Error al crear usuario: " + e.getMessage(), e);
         }
     }
 
+    /**
+     * EJEMPLO 2: BUSCAR POR ID (SELECT BY PRIMARY KEY)
+     * ================================================
+     * Demuestra cómo buscar un documento por su ID (ObjectId).
+     *
+     * COMPARACIÓN CON JDBC:
+     * =====================
+     * MongoDB:
+     * --------
+     * Document doc = collection.find(Filters.eq("_id", new ObjectId(id))).first();
+     *
+     * JDBC:
+     * -----
+     * String sql = "SELECT * FROM users WHERE id = ?";
+     * PreparedStatement stmt = conn.prepareStatement(sql);
+     * stmt.setLong(1, id);
+     * ResultSet rs = stmt.executeQuery();
+     * if (rs.next()) {
+     *     User user = new User();
+     *     user.setId(rs.getLong("id"));
+     *     user.setName(rs.getString("name"));
+     *     // ... mapear todos los campos manualmente
+     * }
+     *
+     * CONCEPTOS CLAVE:
+     * - Filters.eq("_id", valor): Crea filtro de igualdad (WHERE id = ?)
+     * - first(): Retorna el primer documento o null (como rs.next() en JDBC)
+     * - ObjectId: Tipo especial de MongoDB para IDs (24 caracteres hexadecimales)
+     *
+     * VENTAJAS MONGODB:
+     * - ObjectId incluye timestamp de creación
+     * - find() retorna Document directamente, no necesitas iterar ResultSet
+     * - Filters API es type-safe vs SQL strings propensos a errores
+     */
     @Override
     public User findUserById(String id) {
         log.debug("Buscando usuario por ID: {}", id);
         try {
             MongoCollection<Document> collection = getCollection();
 
+            // Buscar por _id (campo especial de MongoDB, equivalente a PRIMARY KEY en SQL)
             Document doc = collection.find(Filters.eq("_id", new ObjectId(id))).first();
+            // Equivalente JDBC:
+            // SELECT * FROM users WHERE id = ?
 
             if (doc == null) {
                 log.warn("Usuario no encontrado con ID: {}", id);
@@ -126,6 +272,7 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
         } catch (UserNotFoundException e) {
             throw e;
         } catch (IllegalArgumentException e) {
+            // ObjectId inválido (no es un hex de 24 caracteres)
             log.warn("ID de usuario inválido: {}", id);
             throw new InvalidUserIdException(id, e);
         } catch (Exception e) {
@@ -134,12 +281,64 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
         }
     }
 
+    /**
+     * EJEMPLO 3: ACTUALIZAR USUARIO (UPDATE)
+     * ======================================
+     * Demuestra cómo actualizar campos de un documento existente.
+     *
+     * COMPARACIÓN CON JDBC:
+     * =====================
+     * MongoDB:
+     * --------
+     * Bson update = Updates.combine(
+     *     Updates.set("name", "Nuevo Nombre"),
+     *     Updates.set("email", "nuevo@email.com"),
+     *     Updates.set("updatedAt", new Date())
+     * );
+     * UpdateResult result = collection.updateOne(Filters.eq("_id", objectId), update);
+     * boolean updated = result.getModifiedCount() > 0;
+     *
+     * JDBC:
+     * -----
+     * StringBuilder sql = new StringBuilder("UPDATE users SET ");
+     * List<Object> params = new ArrayList<>();
+     * if (dto.getName() != null) {
+     *     sql.append("name = ?, ");
+     *     params.add(dto.getName());
+     * }
+     * if (dto.getEmail() != null) {
+     *     sql.append("email = ?, ");
+     *     params.add(dto.getEmail());
+     * }
+     * sql.append("updated_at = ? WHERE id = ?");
+     * params.add(Timestamp.valueOf(LocalDateTime.now()));
+     * params.add(id);
+     * 
+     * PreparedStatement stmt = conn.prepareStatement(sql.toString());
+     * for (int i = 0; i < params.size(); i++) {
+     *     stmt.setObject(i + 1, params.get(i));
+     * }
+     * int rowsAffected = stmt.executeUpdate();
+     *
+     * VENTAJAS MONGODB:
+     * - Updates.set() es más seguro que construir SQL dinámico
+     * - Updates.combine() permite combinar múltiples updates fácilmente
+     * - No necesitas manejar índices de parámetros manualmente
+     * - updateOne() garantiza que solo se actualice un documento
+     *
+     * CONCEPTOS CLAVE:
+     * - Updates.set(campo, valor): Operador $set de MongoDB
+     * - Updates.combine(): Combina múltiples operaciones de update
+     * - updateOne(): Actualiza el primer documento que coincida con el filtro
+     * - getModifiedCount(): Número de documentos realmente modificados
+     */
     @Override
     public User updateUser(String id, UserUpdateDto dto) {
         log.debug("Actualizando usuario con ID: {}", id);
         try {
             MongoCollection<Document> collection = getCollection();
 
+            // Construir updates dinámicamente (solo campos no-null)
             List<Bson> updates = new ArrayList<>();
             if (dto.getName() != null) {
                 updates.add(Updates.set("name", dto.getName()));
@@ -156,20 +355,27 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
             if (dto.getActive() != null) {
                 updates.add(Updates.set("active", dto.getActive()));
             }
+            // Siempre actualizar updatedAt
             updates.add(Updates.set("updatedAt", new Date()));
 
+            // Combinar todos los updates en una sola operación
             Bson updateOperation = Updates.combine(updates);
+            // En MongoDB: { $set: { name: "X", email: "Y", updatedAt: Date } }
+            // En SQL: UPDATE users SET name = ?, email = ?, updated_at = ? WHERE id = ?
 
+            // Ejecutar update
             UpdateResult result = collection.updateOne(
-                    Filters.eq("_id", new ObjectId(id)),
-                    updateOperation
+                    Filters.eq("_id", new ObjectId(id)),  // WHERE id = ?
+                    updateOperation                        // SET campo1 = ?, campo2 = ?
             );
 
+            // Verificar que se modificó algo
             if (result.getMatchedCount() == 0) {
                 log.warn("Usuario no encontrado para actualizar con ID: {}", id);
                 throw new UserNotFoundException(id);
             }
 
+            // Obtener documento actualizado
             User user = findUserById(id);
             log.info("Usuario actualizado exitosamente: {}", id);
             return user;
@@ -185,13 +391,50 @@ public class NativeMongoUserServiceImpl implements NativeMongoUserService {
         }
     }
 
+    /**
+     * EJEMPLO 4: ELIMINAR USUARIO (DELETE)
+     * ====================================
+     * Demuestra cómo eliminar un documento de la colección.
+     *
+     * COMPARACIÓN CON JDBC:
+     * =====================
+     * MongoDB:
+     * --------
+     * DeleteResult result = collection.deleteOne(Filters.eq("_id", new ObjectId(id)));
+     * boolean deleted = result.getDeletedCount() > 0;
+     *
+     * JDBC:
+     * -----
+     * String sql = "DELETE FROM users WHERE id = ?";
+     * PreparedStatement stmt = conn.prepareStatement(sql);
+     * stmt.setLong(1, id);
+     * int rowsAffected = stmt.executeUpdate();
+     * boolean deleted = rowsAffected > 0;
+     *
+     * VENTAJAS MONGODB:
+     * - deleteOne() garantiza que solo se elimine un documento
+     * - En SQL podrías borrar múltiples filas por error si no usas PRIMARY KEY
+     * - MongoDB NO tiene CASCADE DELETE, debes manejar relaciones manualmente
+     *
+     * CONCEPTOS CLAVE:
+     * - deleteOne(): Elimina el primer documento que coincida
+     * - deleteMany(): Eliminaría todos los documentos que coincidan
+     * - getDeletedCount(): Número de documentos eliminados (0 o 1 con deleteOne)
+     *
+     * DIFERENCIA CON SQL:
+     * - MongoDB no tiene claves foráneas ni CASCADE
+     * - Si tienes "pedidos" relacionados con este usuario, NO se borrarán automáticamente
+     * - En SQL con FK + ON DELETE CASCADE, las filas relacionadas se borrarían
+     */
     @Override
     public boolean deleteUser(String id) {
         log.debug("Eliminando usuario con ID: {}", id);
         try {
             MongoCollection<Document> collection = getCollection();
 
+            // Eliminar documento por _id
             DeleteResult result = collection.deleteOne(Filters.eq("_id", new ObjectId(id)));
+            // Equivalente SQL: DELETE FROM users WHERE id = ?
 
             if (result.getDeletedCount() > 0) {
                 log.info("Usuario eliminado exitosamente: {}", id);
