@@ -55,27 +55,6 @@ La unidad sigue un enfoque **práctico-comparativo**:
 - **Evaluación continua:** Defensa oral semanal de los métodos implementados.
 - **Sin trabajo en casa:** Todo el trabajo se realiza en el aula.
 
-### Estructura de las Sesiones
-
-Cada semana de 5 horas se estructura típicamente así:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  DEFENSA ORAL (semanas 3-6)                    │  ~1h      │
-├─────────────────────────────────────────────────────────────┤
-│  TEORÍA + DEMOSTRACIÓN                         │  ~1h      │
-├─────────────────────────────────────────────────────────────┤
-│  PRÁCTICA GUIADA/AUTÓNOMA                      │  ~2h      │
-├─────────────────────────────────────────────────────────────┤
-│  TESTS + RESOLUCIÓN DE DUDAS                   │  ~1h      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Atención a la Diversidad
-
-- **Alumnado avanzado:** Ejercicios de ampliación en cada semana.
-- **Alumnado con dificultades:** Práctica guiada con apoyo directo del docente.
-- **Trabajo colaborativo:** Se permite (y recomienda) consultar entre compañeros durante la práctica.
 
 ---
 
