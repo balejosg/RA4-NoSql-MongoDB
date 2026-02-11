@@ -1,6 +1,6 @@
 package com.dam.accesodatos.mongodb.springdata;
 
-import com.dam.accesodatos.config.MongoDbTestConfiguration;
+import com.dam.accesodatos.config.MongoDbTestContainersConfiguration;
 import com.dam.accesodatos.exception.DuplicateEmailException;
 import com.dam.accesodatos.exception.UserNotFoundException;
 import com.dam.accesodatos.model.User;
@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest
-@Import(MongoDbTestConfiguration.class)
+@Import(MongoDbTestContainersConfiguration.class)
 @DisplayName("SpringDataUserService Tests")
 class SpringDataUserServiceTest {
 
